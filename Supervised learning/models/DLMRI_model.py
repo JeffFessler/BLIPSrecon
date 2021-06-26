@@ -158,13 +158,14 @@ class DLMRIModel(BaseModel):
         # CG_A = networks.CG_A(self.opt.MODLtol, self.opt.MODLLambda)
         CG = networks.CG.apply
 
-        # Ifake = self.Iunder
-        Ifake = self.IDL
+        # Ifake = self.Iunder 	# For S
+        Ifake = self.IDL	# For B+S
         for ii in range(self.opt.num_blocks):
             Ifake1 = self.netG_I(Ifake)
             Ifake = CG(Ifake1, self.opt.MODLtol, self.opt.MODLLambda, self.smap, self.mask, self.Iunder)
         self.Ifake = Ifake
-
+	
+	# For 'explicit' data-consistency
         # Ifake = self.IDL
         # for ii in range(self.opt.num_blocks):
         #     Ifake1 = self.netG_I(Ifake)

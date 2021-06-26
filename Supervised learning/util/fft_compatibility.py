@@ -2,6 +2,8 @@ import torch
 from torch import Tensor
 from packaging import version
 
+# This code is from Matthew Muckley's TorchKBNufft: https://github.com/mmuckley/torchkbnufft
+
 if version.parse(torch.__version__) >= version.parse("1.7.0"):
     import torch.fft  # type: ignore
 

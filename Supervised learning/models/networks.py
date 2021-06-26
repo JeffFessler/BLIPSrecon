@@ -12,7 +12,6 @@ import time
 from util.util import complex_matmul, complex_conj, bspline2_1ndsynth, bilinear_interpolate_torch_gridsample, \
     center_crop
 from util.rbf import rbf, rbf_keops
-from torchkbnufft import AdjMriSenseNufft, MriSenseNufft, KbNufft, AdjKbNufft, ToepSenseNufft
 from .didn import DIDN
 import math
 import scipy
@@ -105,38 +104,6 @@ def define_G(opt, input_nc, output_nc, ngf, which_model_netG, norm='batch', use_
         netG = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif which_model_netG == 'DIDN':
         netG = DIDN(input_nc, output_nc, global_residual=not opt.no_global_residual)
-    elif which_model_netG == 'Mixer':
-        netG = Mixer(ngf)
-    elif which_model_netG == 'Mixer1':
-        netG = Mixer1(ngf)
-    elif which_model_netG == 'density':
-        netG = DensityLayer(opt.nx, opt.ny)
-    elif which_model_netG == 'densitybeta':
-        netG = DensityLayer_beta(opt.nx, opt.ny, opt.beta)
-    elif which_model_netG == 'sampling':
-        netG = SamplingLayer(opt.mask_path, opt.num_shots, opt.stocha_size, opt.tanh_alpha, opt.Trans, opt.noise_level,
-                             opt.angle)
-    elif which_model_netG == 'sampling3D':
-        netG = SamplingLayer3D(opt.mask_path, opt.num_shots, opt.stocha_size, opt.tanh_alpha, opt.Trans,
-                               opt.noise_level,
-                               opt.angle)
-
-    elif which_model_netG == "samplingBspline":
-        netG = SamplingLayerBspline2D(opt.num_shots, opt.nfe, decim=opt.decim_rate, dt=opt.dt,
-                                      res=opt.res, init_traj=opt.mask_path,
-                                      gpu_ids=gpu_ids, ext=opt.padding)
-    elif which_model_netG == "Multinomial":
-        netG = Multinomial(opt.nx, opt.ny, init_traj=opt.mask_path, load_traj=opt.load_traj)
-    elif which_model_netG == 'VN':
-        netG = VN_momentum(opt.num_blocks, opt.num_FOE, opt.num_rbf)
-
-    elif which_model_netG == 'MODL':
-        netG = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
-    elif which_model_netG == 'resunet_64':
-        netG = ResUnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout,
-                                global_residual=not opt.no_global_residual)
-    elif which_model_netG == 'LR':
-        netG = para_lambda(opt.num_blocks)
 
     # elif which_model_netG == 'MODL':
     #     netG = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
@@ -536,81 +503,6 @@ class PixelDiscriminator(nn.Module):
         return self.net(input)
 
 
-class Mixer(nn.Module):
-    def __init__(self, ndf=32):
-        super(Mixer, self).__init__()
-        self.net = [
-            nn.Conv2d(2, ndf, kernel_size=3, stride=1, padding=1),
-            nn.Conv2d(ndf, 2, kernel_size=1, stride=1, padding=0)]
-        self.net = nn.Sequential(*self.net)
-
-    def forward(self, input):
-        return self.net(input)
-
-
-class Mixer1(nn.Module):
-    def __init__(self, ndf=32):
-        super(Mixer1, self).__init__()
-        self.net = [
-            nn.Conv2d(2, ndf, kernel_size=1, stride=1, padding=0),
-            nn.Conv2d(ndf, 2, kernel_size=1, stride=1, padding=0)]
-        self.net = nn.Sequential(*self.net)
-
-    def forward(self, input):
-        return self.net(input)
-
-
-# class DensityLayer(nn.Module):
-#     def __init__(self, nx, ny):
-#         super(DensityLayer, self).__init__()
-#         self.net = [nn.Conv2d(1, 6, kernel_size=3, stride=1, padding=1),
-#                     nn.Conv2d(6, 1, kernel_size=3, stride=1, padding=1),
-#                     nn.Sigmoid()
-#                     ]
-#         self.nx = nx
-#         self.ny = ny
-#         self.net = nn.Sequential(*self.net)
-#
-#     def forward(self, inputdensity):
-#         # intensity: [0,1] size: [1,1,nx,ny]
-#         return self.net(inputdensity)
-
-
-class DensityLayer(nn.Module):
-    def __init__(self, nx, ny):
-        super(DensityLayer, self).__init__()
-        self.weights = nn.Parameter(torch.ones(1, 1, nx, ny))
-        # print('self.weights',self.weights.size())
-        # print('max',torch.max(self.weights))
-        # print('min',torch.min(self.weights))
-        self.activation = nn.Sigmoid()
-        self.net = [nn.Conv2d(1, 6, kernel_size=3, stride=1, padding=1),
-                    nn.Conv2d(6, 1, kernel_size=3, stride=1, padding=1),
-                    nn.Sigmoid()
-                    ]
-        self.net = nn.Sequential(*self.net)
-        # self.weights.register_hook(print)
-
-    def forward(self, x):
-        # print('max',torch.max(self.weights))
-        # print('min',torch.min(self.weights))  #
-        return self.activation(x * self.weights)  # element-wise multiplication
-
-
-class Multinomial(nn.Module):
-    def __init__(self, nx, ny, load_traj=True, init_traj=None):
-        super(Multinomial, self).__init__()
-        self.weights = torch.ones(nx, ny)
-        if load_traj:
-            self.weights = torch.tensor(np.load(init_traj))
-        self.weights = torch.nn.Parameter(self.weights)
-        print(self.weights)
-        self.sf = nn.Softmax()
-
-    def forward(self, x):
-        return self.sf(torch.flatten(self.weights))
-
-
 class MultiviewDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
         n_layers = 5
@@ -688,60 +580,9 @@ class MultiviewDiscriminator(nn.Module):
         return self.model_1(input), self.model_2(input), self.model_3(input)
 
 
-class VN_momentum(nn.Module):
-    def __init__(self, num_blocks, num_kernel, num_rbf):
-        super(VN_momentum, self).__init__()
-        self.in_channels = 2
-        self.num_blocks = num_blocks
-        self.num_kernel = num_kernel
-        self.num_rbf = num_rbf
-        self.lambda_1st = torch.nn.Parameter(0.00001 * torch.ones(num_blocks))  # Weight of gradient
-        self.lambda_mo = torch.nn.Parameter(0.0000001 * torch.ones(num_blocks))
-        self.lambda_mu = torch.nn.Parameter(0.0000001 * torch.ones(num_blocks))  # Weight of first-order momentum
-        self.lambda_R = torch.nn.Parameter(0.000001 * torch.ones(num_blocks))
-        self.kernel = torch.nn.Parameter(torch.ones(self.num_blocks, self.num_kernel, self.in_channels, 11, 11))
-        self.rbf_weights = torch.nn.Parameter(0.00000001 * torch.ones(self.num_blocks, self.num_kernel, self.num_rbf))
-
-    def forward(self, k, Smap, mask, Ireal):
-        # K: undersampled k-space data [Batch, coil, 2, M, N]
-        # Smap:
-        # Mask:
-        # Due to the interpolation effect of RBF, we should make sure that our input image is between [-1,1]
-        BchSize, num_coil, _, M, N = Smap.size()
-        A = OPA(Smap)
-        AT = OPAT(Smap)
-        im0 = AT(k, mask)
-        im = im0
-        im_last = im0
-        k_under = k * (mask.repeat(num_coil, 1, 1, 1, 1).permute(1, 0, 2, 3, 4))
-        for ii in range(1, self.num_blocks):
-            # print("stage",ii)
-            # print('knl',torch.max(self.kernel))
-            # print('maxim0', torch.max(im0))
-            im_K = F.conv2d(im, self.kernel[ii, :, :, :, :], padding=5)
-            # print('maximk', torch.max(im_K))
-            # print('stdimk', torch.std(im_K))
-            im_r = rbf_keops(self.rbf_weights[ii, :, :], im_K, 100, 150)
-            # print('maximr', torch.max(im_r))
-            im_R = F.conv_transpose2d(im_r, self.kernel[ii, :, :, :, :], padding=5)
-            # print('maximR', torch.max(im_R))
-            # print('consisitency', AT(A(im,mask)-k_under,mask).size())
-            im_dc = AT(A(im - self.lambda_mu[ii] * im_last, mask) - k_under, mask)
-            im_temp = im
-            # im = im - self.lambda_R[ii] * im_R - self.lambda_1st[ii]*im_dc - self.lambda_mo[ii]*im_last
-            im = im - self.lambda_R[ii] * im_R - self.lambda_1st[ii] * im_dc - self.lambda_mo[ii] * (im - im_last)
-            im_last = im_temp
-            # print('lambdar', self.lambda_R[ii])
-            # print('lambda1', self.lambda_1st[ii])
-            # print('lambdamo', self.lambda_mo[ii])
-            if ii == 3:
-                im_3 = im
-            if ii == 6:
-                im_6 = im
-        return im, im0, im_R, im_3, im_6, im_dc
-
 
 class OPAT(nn.Module):
+    # Adjoint sense operator
     # Initialize: Sensitivity maps: [Batch, Coils, 2, M, N]
     # Input: K: [Batch, coils, 2, M, N]
     #        Mask: [Batch, 2, M, N]
@@ -760,6 +601,7 @@ class OPAT(nn.Module):
 
 
 class OPA(nn.Module):
+    # Sense operator
     # Initialize: Sensitivity maps: [Batch, Coils, 2, M, N]
     # Input: Image: [Batch, 2, M, N]
     #        Mask: [Batch, 2, M, N]
@@ -780,6 +622,7 @@ class OPA(nn.Module):
 
 
 class OPATA(nn.Module):
+    # Gram operator for multi-coil Cartesian MRI
     # Initialize: Sensitivity maps: [Batch, Coils, 2, M, N]
     # Input: Image: [Batch, 2, M, N]
     #        Mask: [Batch, 2, M, N]
@@ -801,72 +644,14 @@ class OPATA(nn.Module):
         return Im_Us + self.lambda1 * im
 
 
-class CG_A(nn.Module):
-    def __init__(self, tol, lambda1):
-        super(CG_A, self).__init__()
-        self.lambda1 = lambda1  # Could also be learnable
-        self.tol = tol
-
-    def forward(self, smap, mask, dn, z_pad, Ireal):
-        # Sensitivity map: [Batch, Coils, 2, M, N]
-        # Dn: denoised image from CNN, [Batch, 2, M, N]
-        # Z_pad: Ifake = alised image, [Batch, 2, M, N]
-        ATA = OPATA(smap, self.lambda1)
-        b0 = dn * self.lambda1 + z_pad
-        x0 = b0
-        num_loop = 0
-        r0 = b0 - ATA(x0, mask)
-        p0 = r0
-        rk = r0
-        pk = p0
-        xk = x0
-        while torch.norm(rk).data.cpu().numpy().tolist() > self.tol:
-            # for ii in range(4):
-            # print('stage:',ii)
-            # print('norm of r',torch.norm(rk))
-            # print('norm of p',torch.norm(pk))
-            # print('pap',torch.pow(torch.norm(pk*ATA(pk,mask)),2))
-            # print('tol',self.tol)
-            rktrk = torch.pow(torch.norm(rk), 2)
-            pktapk = torch.sum(complex_matmul(complex_conj(pk), ATA(pk, mask)))
-            alpha = rktrk / pktapk  # Check if it is real!
-            # print('alpha',alpha)
-            xk1 = xk + alpha * pk
-            rk1 = rk - alpha * ATA(pk, mask)
-            rk1trk1 = torch.pow(torch.norm(rk1), 2)
-            # print('norm of r1',torch.norm(rk1))
-            beta = rk1trk1 / rktrk
-            pk1 = rk1 + beta * pk
-            # print('beta',beta)
-            xk = xk1
-            rk = rk1
-            pk = pk1
-            num_loop = num_loop + 1
-            print(num_loop, ',error:', torch.norm(ATA(xk, mask) - b0))
-            # print('norm of b0', torch.norm(b0))
-            # if ii==0:
-            #     rk_stage1 = rk
-            # if ii==1:
-            #     rk_stage2 = rk
-            # if ii==2:
-            #     rk_stage3 = rk
-            # if ii==3:
-            #     rk_stage4 = rk
-            # if ii==0:
-            #     rk_stage1 = xk1
-            # if ii==1:
-            #     rk_stage2 = xk1
-            # if ii==2:
-            #     rk_stage3 = xk1
-            # if ii==3:
-            #     rk_stage4 = xk1
-            # print('crit',torch.norm(rk).data.cpu().numpy().tolist()<self.tol)
-        # print("total iteration number:", num_loop)
-        # return rk_stage1, rk_stage2, rk_stage3, rk_stage4
-        return xk
-
-
 class CG(torch.autograd.Function):
+    # Modified solver for (A'A+\lambda I)^{-1} (\lambda A'y + Dn)
+    # For reference, see: https://arxiv.org/abs/1712.02862
+    # Input: Dn, Z_pad: [Batch, 2, M, N]
+    #        Mask: [Batch, 2, M, N]
+    #        smap: [Batch, ncoil, 2, M, N]
+    #        tol: exiting threshold
+    # Return: Image: [Batch, 2, M, N]
     @staticmethod
     def forward(ctx, dn, tol, lambda1, smap, mask, z_pad):
         tol = torch.tensor(tol).to(device=dn.device, dtype=dn.dtype)
@@ -881,7 +666,8 @@ class CG(torch.autograd.Function):
 
 
 def cg_block(smap, mask, b0, z_pad, lambda1, tol, M=None, dn=None):
-    # A specified conjugated gradietn block for MR system matrix A
+    # A specified conjugated gradietn block for MR system matrix A.
+    # Not very efficient.
     # Sensitivity map: [Batch, Coils, 2, M, N]
     # Dn: denoised image from CNN, [Batch, 2, M, N]
     # Z_pad: Ifake = alised image, [Batch, 2, M, N]
@@ -898,10 +684,6 @@ def cg_block(smap, mask, b0, z_pad, lambda1, tol, M=None, dn=None):
     while torch.norm(rk).data.cpu().numpy().tolist() > tol:
         rktrk = torch.pow(torch.norm(rk), 2)
         pktapk = torch.sum(complex_matmul(complex_conj(pk), ATA(pk, mask)))
-        # print('real')
-        # print(torch.norm(complex_matmul(complex_conj(pk),ATA(pk,mask))[0,0,:,:]))
-        # print('imag')
-        # print(torch.norm(complex_matmul(complex_conj(pk),ATA(pk,mask))[0,1,:,:]))
         alpha = rktrk / pktapk
         xk1 = xk + alpha * pk
         rk1 = rk - alpha * ATA(pk, mask)
@@ -912,8 +694,7 @@ def cg_block(smap, mask, b0, z_pad, lambda1, tol, M=None, dn=None):
         rk = rk1
         pk = pk1
         num_loop = num_loop + 1
-        # print(torch.norm(rk).data.cpu().numpy().tolist())
-    # print(num_loop)
+
     return xk
 
 
