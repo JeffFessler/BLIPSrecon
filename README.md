@@ -41,11 +41,16 @@ using SOUP-DIL dictionary learning-based regularization.
 that takes overlapping patches in an initial image
 and learns a dictionary and a set of sparse coefficients to represent these patches.
 
+#### Update
+
+Now we provide SOUP-DIL on Python, via [MIRTorch](https://github.com/guanhuaw/MIRTorch). This [Jupyter notebook](https://github.com/guanhuaw/MIRTorch/blob/master/examples/demo_dl.ipynb) illustrates the usage.
+
 
 ## Deep Supervised Learning-based Image Reconstruction
 
 The supervised learning approach used a training set generated from the
 [fastMRI project](https://fastmri.org/).
+
 * `Preprocessing.ipynb` provides an example of the data-preprocessing.
 * `MODL_DLMRI_Knee_vd.sh` gives an example of training the neural network.
 * The file `requirements.txt` denotes related Python packages.
